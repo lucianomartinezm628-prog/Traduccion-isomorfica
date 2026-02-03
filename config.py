@@ -1,7 +1,11 @@
+# config.py
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Any
 from datetime import datetime
 
+# --- ESTA ES LA LÍNEA QUE TE FALTA ---
+from constants import ModoTransliteracion, NormaTransliteracion, ModoSalida
+# -------------------------------------
 
 @dataclass
 class ReglaUsuario:
@@ -12,12 +16,11 @@ class ReglaUsuario:
     timestamp: datetime = field(default_factory=datetime.now)
     activa: bool = True
 
-
 @dataclass
 class ConfiguracionSistema:
     """Configuración global del sistema"""
     
-    # Modos
+    # Modos (Aquí es donde daba el error si no importas las constantes arriba)
     modo_transliteracion: ModoTransliteracion = ModoTransliteracion.DESACTIVADO
     norma_transliteracion: NormaTransliteracion = NormaTransliteracion.DIN_31635
     modo_salida: ModoSalida = ModoSalida.BORRADOR
@@ -131,18 +134,14 @@ class ConfiguracionSistema:
         
         return config
 
-
 # Instancia global de configuración
 config_global = ConfiguracionSistema()
-
 
 def obtener_config() -> ConfiguracionSistema:
     """Obtener configuración global"""
     return config_global
 
-
 def establecer_config(config: ConfiguracionSistema) -> None:
     """Establecer configuración global"""
     global config_global
     config_global = config
-
