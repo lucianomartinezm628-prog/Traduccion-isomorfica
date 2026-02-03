@@ -1,37 +1,31 @@
-
-
 """
 ════════════════════════════════════════════════════════════════
 SISTEMA DE TRADUCCIÓN ISOMÓRFICA — VERSIÓN PYTHON
 Bloque 5/13: Núcleos Léxicos - Discriminador Semántico (P4)
 ════════════════════════════════════════════════════════════════
-
-TRIGGER: P3.F2 (para cada Slot_N[i] con status ≠ BLOQUEADO)
-INPUT:   Slot_N = {token_src, cat_src, morph_src, pos_index, status}
-OUTPUT:  Slot_N_Out = {token_src, cat_t, morph_t, pos_index, token_tgt}
-
-PRINCIPIO: Núcleos son INVARIABLES. Una traducción por token, siempre.
-
-JERARQUÍA ETIMOLÓGICA:
-  [LENGUA_FUENTE > LATINA > GRIEGA > ÁRABE > TÉCNICA]
-
-REGLA DE PREFERENCIA:
-  Si etimología ≠ uso técnico pero metáfora viable → ETIMOLOGÍA.
 """
 
 from typing import Dict, List, Optional, Any, Tuple
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
 
+# Importamos constantes básicas. 
+# Si JERARQUIA_ETIMOLOGICA da error de importación, la definimos abajo localmente.
 from constants import (
     TokenStatus, TokenCategoria, CategoriaGramatical,
-    Reason, JERARQUIA_ETIMOLOGICA, FalloCritico
+    Reason, FalloCritico
 )
+try:
+    from constants import JERARQUIA_ETIMOLOGICA
+except ImportError:
+    # Definición de respaldo si no está en constants.py
+    JERARQUIA_ETIMOLOGICA = ["LENGUA_FUENTE", "LATINA", "GRIEGA", "ARABE", "TECNICA"]
+
 from models import (
     SlotN, MorfologiaFuente, MorfologiaTarget, ErrorCritico
 )
 from glossary import Glosario, SinonimiaError
-
+from ai_client import ai_engine 
 
 # ══════════════════════════════════════════════════════════════
 # ESTRUCTURAS DE DATOS
@@ -50,9 +44,19 @@ class CandidatoEtimologico:
     def calcular_prioridad(self) -> int:
         """Calcular prioridad según jerarquía etimológica"""
         try:
-            self.prioridad = len(JERARQUIA_ETIMOLOGICA) - JERARQUIA_ETIMOLOGICA.index(self.origen)
+            # Mientras menor índice en la lista, mayor prioridad
+            # Invertimos el valor para que sea un score positivo
+            idx = JERARQUIA_ETIMOLOGICA.index(self.origen)
+            self.prioridad = (len(JERARQUIA_ETIMOLOGICA) - idx) * 10
         except ValueError:
             self.prioridad = 0
+        
+        # Bonificadores
+        if self.es_metafora_viable:
+            self.prioridad += 5
+        if self.derivacion_existe:
+            self.prioridad += 2
+            
         return self.prioridad
 
 
@@ -80,19 +84,26 @@ class ResultadoNucleo:
 
 
 # ══════════════════════════════════════════════════════════════
-# BASE DE DATOS ETIMOLÓGICA (Simulada)
+# BASE DE DATOS ETIMOLÓGICA (Simulada + IA)
 # ══════════════════════════════════════════════════════════════
-
-# Importa el cliente AI al inicio del archivo
-from ai_client import ai_engine 
 
 class BaseEtimologica:
     def __init__(self):
         # Tu diccionario inicial actúa como CACHÉ (Memoria rápida)
         self._raices: Dict[str, List[Tuple[str, str, str, bool]]] = {
-            # ... tus datos harcodeados iniciales ...
+            "kitāb": [("escritura", "LATINA", "script-", True)],
+            "ʿaql": [("intelecto", "LATINA", "intelec-", True), ("ligadura", "LATINA", "lig-", True)],
         }
-        self._metaforas_viables: Dict[str, List[str]] = {}
+        self._metaforas_viables: Dict[str, List[str]] = {
+            "ʿaql": ["ligadura"]
+        }
+
+    def _es_metafora_viable(self, token: str, termino: str) -> bool:
+        """Verifica si un término es metáfora viable para el token dado"""
+        token_key = token.lower()
+        if token_key in self._metaforas_viables:
+            return termino in self._metaforas_viables[token_key]
+        return False
 
     def buscar_raices(self, token_src: str, contexto: str = "") -> List[CandidatoEtimologico]:
         """Buscar raíces. Si no existen, PREGUNTAR A GEMINI."""
@@ -108,7 +119,7 @@ class BaseEtimologica:
                 cand = CandidatoEtimologico(
                     termino=termino, origen=origen, raiz=raiz,
                     derivacion_existe=deriv_existe,
-                    es_metafora_viable=self._es_metafora_viable(token_src, termino)
+                    es_metafora_viable=self._es_metafora_viable(token_key, termino)
                 )
                 cand.calcular_prioridad()
                 candidatos.append(cand)
@@ -151,6 +162,12 @@ class BaseEtimologica:
         
         return candidatos_obj
 
+# Instancia global de BaseEtimologica (necesaria para 'obtener_base_etimologica')
+_base_etimologica = BaseEtimologica()
+
+def obtener_base_etimologica() -> BaseEtimologica:
+    """Función de acceso global a la base etimológica"""
+    return _base_etimologica
 
 
 # ══════════════════════════════════════════════════════════════
@@ -160,15 +177,6 @@ class BaseEtimologica:
 class ProcesadorNucleos:
     """
     P4: Núcleos Léxicos - Discriminador Semántico
-    
-    Flujo:
-      F1. Verificación de bloqueo
-      F2. Cache check
-      F3. Búsqueda de lexemas
-      F4. Selección
-      F5. Morfología adaptativa
-      F6. Verificación de paridad
-      F7. Salida
     """
     
     def __init__(self, base_etim: BaseEtimologica = None):
@@ -182,13 +190,7 @@ class ProcesadorNucleos:
     def procesar(self, slot_n: SlotN, glosario: Glosario) -> Dict[str, Any]:
         """
         Procesar un núcleo léxico
-        
-        Args:
-            slot_n: Slot del núcleo a procesar
-            glosario: Glosario del sistema
-        
-        Returns:
-            Diccionario con resultado del procesamiento
+        Returns: Diccionario con resultado del procesamiento
         """
         resultado = ResultadoNucleo(exito=False)
         
@@ -247,20 +249,12 @@ class ProcesadorNucleos:
     # ══════════════════════════════════════════════════════════
     
     def _f1_verificar_bloqueo(self, slot_n: SlotN, glosario: Glosario) -> bool:
-        """
-        F1. Verificación de bloqueo (P4.F1)
-        
-        Si token está BLOQUEADO → parte de locución, no traducir individualmente
-        """
         if slot_n.status == TokenStatus.BLOQUEADO:
             return True
-        
-        # Verificar también en glosario
         loc_id = glosario.fase_b_verificar_bloqueo(slot_n.token_src, slot_n.pos_index)
         if loc_id:
             slot_n.bloquear(loc_id)
             return True
-        
         return False
     
     # ══════════════════════════════════════════════════════════
@@ -268,16 +262,9 @@ class ProcesadorNucleos:
     # ══════════════════════════════════════════════════════════
     
     def _f2_cache_check(self, slot_n: SlotN, glosario: Glosario) -> Optional[str]:
-        """
-        F2. Cache check (P4.F2)
-        
-        Si token ya está en glosario con traducción asignada → usar esa
-        """
         entrada = glosario.obtener_entrada(slot_n.token_src)
-        
         if entrada and entrada.status == TokenStatus.ASIGNADO:
             return entrada.token_tgt
-        
         return None
     
     # ══════════════════════════════════════════════════════════
@@ -285,15 +272,7 @@ class ProcesadorNucleos:
     # ══════════════════════════════════════════════════════════
     
     def _f3_busqueda_lexemas(self, slot_n: SlotN) -> List[CandidatoEtimologico]:
-        """
-        F3. Búsqueda de lexemas (P4.F3)
-        
-        Buscar raíces etimológicas y ordenar según jerarquía
-        """
-        candidatos = self.base_etim.buscar_raices(slot_n.token_src)
-        
-        # Ya vienen ordenados por prioridad desde la base
-        return candidatos
+        return self.base_etim.buscar_raices(slot_n.token_src)
     
     # ══════════════════════════════════════════════════════════
     # F4. SELECCIÓN
@@ -301,36 +280,18 @@ class ProcesadorNucleos:
     
     def _f4_seleccion(self, slot_n: SlotN, candidatos: List[CandidatoEtimologico],
                       glosario: Glosario) -> Tuple[str, Optional[Reason]]:
-        """
-        F4. Selección (P4.F4)
-        
-        Seleccionar traducción según número de candidatos y reglas
-        """
         count = len(candidatos)
         
-        # CASE: Sin candidatos (NO_ROOT)
         if count == 0:
             return self._manejar_caso_dificil(slot_n, Reason.NO_ROOT, glosario)
         
-        # CASE: Múltiples candidatos (posible COLLISION)
         if count > 1:
-            # Aplicar regla de preferencia etimológica
-            # Si el primero es etimológico y permite metáfora → preferir
             primer_cand = candidatos[0]
-            
             if primer_cand.es_metafora_viable:
-                # Preferir etimología sobre uso técnico
                 return primer_cand.termino, None
-            
-            # Si no hay metáfora clara → posible COLLISION
-            return self._manejar_caso_dificil(
-                slot_n, Reason.COLLISION, glosario, candidatos
-            )
+            return self._manejar_caso_dificil(slot_n, Reason.COLLISION, glosario, candidatos)
         
-        # CASE: Candidato único
         cand = candidatos[0]
-        
-        # Verificar si derivación existe
         if not cand.derivacion_existe:
             return self._manejar_caso_dificil(slot_n, Reason.GAP_DERIVATION, glosario)
         
@@ -339,28 +300,19 @@ class ProcesadorNucleos:
     def _manejar_caso_dificil(self, slot_n: SlotN, reason: Reason,
                               glosario: Glosario,
                               candidatos: List[CandidatoEtimologico] = None) -> Tuple[str, Reason]:
-        """Delegar a P6 para casos difíciles"""
         if self._procesador_casos_dificiles:
             resultado = self._procesador_casos_dificiles.procesar(
                 slot_n, reason, glosario, candidatos
             )
             return resultado.get("n_base", slot_n.token_src), reason
         
-        # Fallback si no hay P6 configurado
+        # Fallback simple
         if reason == Reason.NO_ROOT:
-            # Transliterar
             return slot_n.token_src + "-ado", reason
         elif reason == Reason.GAP_DERIVATION:
-            # Usar raíz con sufijo forzado
-            raiz = self.base_etim.obtener_raiz(slot_n.token_src)
-            if raiz:
-                return raiz.rstrip("-") + "ado", reason
             return slot_n.token_src + "-ado", reason
         elif reason == Reason.COLLISION:
-            # Usar primer candidato
-            if candidatos:
-                return candidatos[0].termino, reason
-            return slot_n.token_src, reason
+            return candidatos[0].termino if candidatos else slot_n.token_src, reason
         
         return slot_n.token_src, reason
     
@@ -369,13 +321,6 @@ class ProcesadorNucleos:
     # ══════════════════════════════════════════════════════════
     
     def _f5_morfologia(self, n_base: str, morph_src: MorfologiaFuente) -> Tuple[str, MorfologiaTarget]:
-        """
-        F5. Morfología adaptativa (P4.F5)
-        
-        Aplicar: número, persona, tiempo, voz
-        Ignorar: caso gramatical
-        Género: heredar del español o adaptar
-        """
         morph_tgt = MorfologiaTarget()
         n_flexionado = n_base
         
@@ -383,8 +328,7 @@ class ProcesadorNucleos:
         if morph_src.numero == "singular":
             morph_tgt.numero = "singular"
         elif morph_src.numero == "dual":
-            # Dual → "ambos" o "los dos" o plural
-            morph_tgt.numero = "plural"  # Simplificado
+            morph_tgt.numero = "plural"
             n_flexionado = self._pluralizar(n_base)
         elif morph_src.numero == "plural":
             morph_tgt.numero = "plural"
@@ -396,24 +340,17 @@ class ProcesadorNucleos:
         else:
             morph_tgt.genero = self._inferir_genero(n_base)
         
-        # PERSONA (verbos)
+        # PERSONA Y TIEMPO (Simplificado)
         if morph_src.persona:
             morph_tgt.persona = morph_src.persona
-            n_flexionado = self._conjugar_persona(n_flexionado, morph_src.persona)
-        
-        # TIEMPO (verbos)
         if morph_src.tiempo:
             morph_tgt.tiempo = morph_src.tiempo
-            n_flexionado = self._conjugar_tiempo(n_flexionado, morph_src.tiempo)
-        
-        # VOZ (verbos)
         if morph_src.voz:
             morph_tgt.voz = morph_src.voz
         
         return n_flexionado, morph_tgt
     
     def _pluralizar(self, termino: str) -> str:
-        """Pluralizar un término en español"""
         if termino.endswith(("a", "e", "i", "o", "u")):
             return termino + "s"
         elif termino.endswith(("s", "x", "z")):
@@ -422,89 +359,42 @@ class ProcesadorNucleos:
             return termino + "es"
     
     def _adaptar_genero(self, termino: str, genero_src: str) -> str:
-        """Adaptar género según el español"""
-        # Simplificado - en producción se usaría diccionario
-        if termino.endswith("a"):
-            return "femenino"
-        elif termino.endswith("o"):
-            return "masculino"
-        return "masculino"  # Default
+        # Simplificado
+        return "masculino" 
     
     def _inferir_genero(self, termino: str) -> str:
-        """Inferir género del término en español"""
         if termino.endswith("a") and not termino.endswith(("ma", "ta")):
             return "femenino"
         elif termino.endswith(("ción", "sión", "dad", "tad", "tud")):
             return "femenino"
         return "masculino"
     
-    def _conjugar_persona(self, termino: str, persona: int) -> str:
-        """Conjugar verbo según persona (simplificado)"""
-        # Esto requeriría un conjugador completo
-        return termino
-    
-    def _conjugar_tiempo(self, termino: str, tiempo: str) -> str:
-        """Conjugar verbo según tiempo (simplificado)"""
-        return termino
-    
     # ══════════════════════════════════════════════════════════
-    # F6. VERIFICACIÓN DE PARIDAD
+    # F6 Y F7
     # ══════════════════════════════════════════════════════════
     
     def _f6_verificar_paridad(self, slot_n: SlotN, n_base: str, glosario: Glosario) -> None:
-        """
-        F6. Verificación de paridad (P4.F6)
-        
-        Verificar mapeo 1:1 - si ya está mapeado a OTRO token_tgt → FALLO CRÍTICO
-        """
-        # Esto se delega al glosario que lanza SinonimiaError si hay conflicto
         glosario.fase_b_verificar_sinonimia(slot_n.token_src, n_base)
-    
-    # ══════════════════════════════════════════════════════════
-    # F7. SALIDA
-    # ══════════════════════════════════════════════════════════
     
     def _f7_salida(self, slot_n: SlotN, n_base: str, glosario: Glosario,
                    reason: Optional[Reason] = None) -> None:
-        """
-        F7. Salida (P4.F7)
+        margen = 6 if reason == Reason.IDIOM else (5 if reason == Reason.COLLISION else 1)
+        etiqueta = reason.name if reason else None
         
-        Registrar en glosario y preparar salida
-        """
-        # Calcular margen
-        if reason:
-            margen = self._calcular_margen(reason)
-            etiqueta = reason.name
-        else:
-            margen = 1  # Mapeo directo
-            etiqueta = None
-        
-        # Registrar en glosario
         glosario.fase_b_asignar(
             slot_n.token_src,
             n_base,
             margen=margen,
             etiqueta=etiqueta
         )
-    
-    def _calcular_margen(self, reason: Reason) -> int:
-        """Calcular margen de decisión según razón"""
-        margenes = {
-            Reason.IDIOM: 6,
-            Reason.COLLISION: 5,
-            Reason.NO_ROOT: 4,
-            Reason.GAP_DERIVATION: 4,
-        }
-        return margenes.get(reason, 1)
 
 
 # ══════════════════════════════════════════════════════════════
-# FUNCIONES DE AYUDA
+# FUNCIONES DE AYUDA (Exports)
 # ══════════════════════════════════════════════════════════════
 
 def crear_slot_n(token_src: str, cat_src: CategoriaGramatical,
                  pos_index: int, morph: MorfologiaFuente = None) -> SlotN:
-    """Crear un SlotN con valores por defecto"""
     return SlotN(
         token_src=token_src,
         cat_src=cat_src,
@@ -513,15 +403,7 @@ def crear_slot_n(token_src: str, cat_src: CategoriaGramatical,
         status=TokenStatus.PENDIENTE
     )
 
-
 def es_metafora_viable(token_src: str, contexto: str = None) -> bool:
-    """
-    Verificar si un token permite lectura metafórica en el contexto
-    
-    Implementación de la regla:
-    Si etimología ≠ uso técnico pero metáfora viable → ETIMOLOGÍA
-    """
     base = obtener_base_etimologica()
     candidatos = base.buscar_raices(token_src)
-    
     return any(c.es_metafora_viable for c in candidatos)
