@@ -1,5 +1,3 @@
-
-
 """
 ════════════════════════════════════════════════════════════════
 SISTEMA DE TRADUCCIÓN ISOMÓRFICA — VERSIÓN PYTHON
@@ -62,43 +60,148 @@ class ResultadoParticula:
 # BASE DE DATOS DE PARTÍCULAS
 # ══════════════════════════════════════════════════════════════
 
-# particulas.py
-from typing import Dict, List, Optional, Any
-from constants import TokenStatus, FuncRole
-from models import SlotP, MatrizFuente
-from glossary import Glosario
-from ai_client import ai_engine # Importante para la conexión con Gemini
-
-class CandidatoParticula:
-    """Candidato para traducción de partícula"""
-    def __init__(self, termino, origen, func_role, cierra_regimen, prioridad):
-        self.termino = termino
-        self.origen = origen
-        self.func_role = func_role
-        self.cierra_regimen = cierra_regimen
-        self.prioridad = prioridad
-    
-    def __lt__(self, other):
-        return self.prioridad > other.prioridad
-
 class BaseParticulas:
     """
-    Base de datos de partículas con integración de Gemini (P5)
+    Base de datos de partículas y sus equivalentes
+    Incluye información etimológica y funcional
     """
+    
     def __init__(self):
-        # 1. Memoria Local (Caché + Datos Predefinidos)
+        # Partículas por token fuente
+        # Formato: token_src -> {func_role: [(termino_es, es_etimologico, cierra_regimen)]}
         self._particulas: Dict[str, Dict[FuncRole, List[tuple]]] = {
+            # Preposiciones árabes
             "bi": {
-                FuncRole.REGIMEN: [("por", True, True), ("con", False, True)],
-                FuncRole.MARCA_CASUAL: [("por", True, True)]
+                FuncRole.REGIMEN: [
+                    ("por", True, True),
+                    ("con", False, True),
+                    ("en", False, True),
+                ],
+                FuncRole.MARCA_CASUAL: [
+                    ("por", True, True),
+                    ("mediante", False, True),
+                ],
             },
             "li": {
-                FuncRole.REGIMEN: [("para", True, True), ("a", False, True)],
-                FuncRole.DETERMINACION: [("el", False, True)]
+                FuncRole.REGIMEN: [
+                    ("para", True, True),
+                    ("a", False, True),
+                ],
+                FuncRole.DETERMINACION: [
+                    ("el", False, True),  # Artículo definido
+                ],
             },
-            # ... puedes mantener el resto de tus ejemplos del Bloque 6 aquí ...
+            "fi": {
+                FuncRole.REGIMEN: [
+                    ("en", True, True),
+                    ("dentro de", False, True),
+                ],
+                FuncRole.ADVERBIAL: [
+                    ("en", True, True),
+                ],
+            },
+            "min": {
+                FuncRole.REGIMEN: [
+                    ("de", True, True),
+                    ("desde", False, True),
+                ],
+                FuncRole.MARCA_CASUAL: [
+                    ("de", True, True),
+                    ("entre", False, True),
+                ],
+            },
+            "ʿan": {
+                FuncRole.REGIMEN: [
+                    ("sobre", True, True),
+                    ("acerca de", False, True),
+                    ("de", False, True),
+                ],
+            },
+            "ʿalā": {
+                FuncRole.REGIMEN: [
+                    ("sobre", True, True),
+                    ("en", False, True),
+                ],
+                FuncRole.ADVERBIAL: [
+                    ("sobre", True, True),
+                ],
+            },
+            "ilā": {
+                FuncRole.REGIMEN: [
+                    ("hacia", True, True),
+                    ("a", False, True),
+                    ("hasta", False, True),
+                ],
+            },
+            # Conjunciones
+            "wa": {
+                FuncRole.NEXO_LOGICO: [
+                    ("y", True, True),
+                    ("e", False, True),
+                ],
+            },
+            "aw": {
+                FuncRole.NEXO_LOGICO: [
+                    ("o", True, True),
+                    ("u", False, True),
+                ],
+            },
+            "fa": {
+                FuncRole.NEXO_LOGICO: [
+                    ("y", False, True),
+                    ("pues", True, True),
+                    ("entonces", False, True),
+                ],
+            },
+            "inna": {
+                FuncRole.COPULA: [
+                    ("ciertamente", True, True),
+                    ("en verdad", False, True),
+                ],
+            },
+            "anna": {
+                FuncRole.NEXO_LOGICO: [
+                    ("que", True, True),
+                ],
+            },
+            # Pronombres/Sufijos
+            "huwa": {
+                FuncRole.COPULA: [
+                    ("él", True, True),
+                    ("ello", False, True),
+                ],
+            },
+            "hiya": {
+                FuncRole.COPULA: [
+                    ("ella", True, True),
+                ],
+            },
+            # Artículo
+            "al": {
+                FuncRole.DETERMINACION: [
+                    ("el", True, True),
+                    ("la", False, True),
+                    ("lo", False, True),
+                ],
+            },
+            # Relativos
+            "alladhī": {
+                FuncRole.RELATIVO: [
+                    ("que", True, True),
+                    ("el cual", False, True),
+                    ("quien", False, True),
+                ],
+            },
+            "allatī": {
+                FuncRole.RELATIVO: [
+                    ("que", True, True),
+                    ("la cual", False, True),
+                    ("quien", False, True),
+                ],
+            },
         }
         
+        # Requisitos de régimen por núcleo (simplificado)
         self._regimenes: Dict[str, List[str]] = {
             "hablar": ["de", "sobre", "con"],
             "pensar": ["en", "sobre"],
@@ -106,29 +209,13 @@ class BaseParticulas:
             "depender": ["de"],
             "pertenecer": ["a"],
         }
-
+    
     def buscar_etimologicos(self, token_src: str, func_role: FuncRole) -> List[CandidatoParticula]:
-        token_key = token_src.lower()
-        
-        # PASO 1: Si NO está en la memoria local, preguntamos a Gemini
-        if token_key not in self._particulas or func_role not in self._particulas[token_key]:
-            print(f"[IA] Consultando partícula: {token_src} ({func_role.name})...")
-            datos_ia = ai_engine.consultar_particula(token_src, func_role.name)
-            
-            # PASO 2: Guardamos la respuesta en la memoria (Caché)
-            if token_key not in self._particulas:
-                self._particulas[token_key] = {}
-            
-            lista_tuplas = []
-            for item in datos_ia:
-                lista_tuplas.append(
-                    (item['termino'], item['es_etimologico'], item['cierra_regimen'])
-                )
-            self._particulas[token_key][func_role] = lista_tuplas
-
-        # PASO 3: Generamos los objetos CandidatoParticula desde la memoria
+        """Buscar candidatos etimológicos que cierran régimen"""
         candidatos = []
-        datos_funcion = self._particulas[token_key].get(func_role, [])
+        
+        datos_token = self._particulas.get(token_src.lower(), {})
+        datos_funcion = datos_token.get(func_role, [])
         
         for termino, es_etim, cierra in datos_funcion:
             if es_etim and cierra:
@@ -137,22 +224,21 @@ class BaseParticulas:
                     origen="ETIMOLOGICO",
                     func_role=func_role,
                     cierra_regimen=cierra,
-                    prioridad=10 
+                    prioridad=10  # Alta prioridad
                 )
                 candidatos.append(cand)
         
         return candidatos
-
+    
     def buscar_funcionales(self, token_src: str, func_role: FuncRole) -> List[CandidatoParticula]:
-        """Busca candidatos funcionales (mismo proceso de caché que el anterior)"""
-        token_key = token_src.lower()
+        """Buscar candidatos funcionales que cierran régimen"""
         candidatos = []
         
-        # El proceso de consulta a IA ya se hizo en buscar_etimologicos si era necesario
-        datos_funcion = self._particulas.get(token_key, {}).get(func_role, [])
+        datos_token = self._particulas.get(token_src.lower(), {})
+        datos_funcion = datos_token.get(func_role, [])
         
         for termino, es_etim, cierra in datos_funcion:
-            if cierra:
+            if cierra:  # Incluir todos los que cierran
                 cand = CandidatoParticula(
                     termino=termino,
                     origen="ETIMOLOGICO" if es_etim else "FUNCIONAL",
@@ -163,12 +249,15 @@ class BaseParticulas:
                 candidatos.append(cand)
         
         return candidatos
-
+    
     def obtener_regimen_nucleo(self, nucleo: str) -> List[str]:
+        """Obtener preposiciones que cierra el régimen de un núcleo"""
         return self._regimenes.get(nucleo.lower(), [])
 
-# Instancia global y funciones de ayuda
+
+# Instancia global
 _base_particulas = BaseParticulas()
+
 
 def obtener_base_particulas() -> BaseParticulas:
     return _base_particulas
