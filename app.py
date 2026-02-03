@@ -6,7 +6,7 @@ from io import StringIO
 try:
     from main import SistemaTraduccion
 except ImportError:
-    st.error("⚠️ No se encontró el archivo 'main.py'.")
+    st.error("⚠️ No se encontró el archivo 'main.py'. Asegúrate de que está en la misma carpeta.")
     st.stop()
 
 st.set_page_config(page_title="Traductor Isomórfico", layout="wide")
@@ -21,14 +21,14 @@ sys = st.session_state.sistema
 with st.sidebar:
     st.title("⚙️ Configuración")
     
-    # 1. BOTÓN DE REINICIO (Úsalo ahora para borrar los errores "idad")
+    # 1. BOTÓN DE REINICIO
     if st.button("🔴 REINICIAR SISTEMA (Borrar memoria)", type="primary"):
         st.session_state.sistema = SistemaTraduccion()
         st.rerun()
     
     st.divider()
 
-    # 2. CARGADOR DE GLOSARIO (¡NUEVO!)
+    # 2. CARGADOR DE GLOSARIO
     st.subheader("📂 Cargar Glosario")
     archivo_subido = st.file_uploader("Sube un archivo .txt o .json", type=['txt', 'json'])
     
@@ -38,11 +38,10 @@ with st.sidebar:
                 # Leer archivo
                 stringio = StringIO(archivo_subido.getvalue().decode("utf-8"))
                 
-                # Caso 1: Archivo JSON (Exportado previamente)
+                # Caso 1: Archivo JSON
                 if archivo_subido.name.endswith('.json'):
                     datos = json.load(stringio)
-                    # Aquí habría que conectar con una función de importación en tu backend
-                    # Si no existe, simulamos carga manual:
+                    # Simulamos carga manual si no hay importador directo expuesto
                     count = 0
                     for k, v in datos.items():
                         cmd = f"[AÑADE {k} = {v['traduccion']}]"
@@ -58,36 +57,57 @@ with st.sidebar:
                     barra = st.progress(0)
                     for i, linea in enumerate(lineas):
                         linea = linea.strip()
-                        if linea.startswith("[AÑADE") or linea.startswith("[REGLA"):
+                        # Solo procesamos si parece un comando o una regla
+                        if linea.startswith("["):
                             sys.procesar_comando(linea)
                             count += 1
-                        elif linea: # Si hay texto pero no es comando
+                        elif linea: 
                             errores += 1
                         barra.progress((i + 1) / len(lineas))
                     
                     st.success(f"✅ Procesados {count} comandos.")
                     if errores > 0:
-                        st.warning(f"⚠️ {errores} líneas ignoradas (no eran comandos).")
+                        st.warning(f"⚠️ {errores} líneas ignoradas (no tenían formato [COMANDO]).")
                         
             except Exception as e:
                 st.error(f"Error al leer archivo: {e}")
 
     st.divider()
     
-    # Visor rápido
-    st.info(f"Tokens en memoria: {len(sys.glosario.terminos)}")
+    # Visor rápido (CORREGIDO AQUÍ)
+    # Accedemos a _entradas en lugar de terminos
+    st.info(f"Tokens en memoria: {len(sys.glosario._entradas)}")
 
 # --- PANTALLA PRINCIPAL ---
 st.title("🛡️ Traductor Isomórfico")
 
-texto = st.text_area("Texto Latín/Árabe", height=150)
+col1, col2 = st.columns([3, 1])
 
-if st.button("TRADUCIR", type="primary"):
-    if texto:
-        res = sys.traducir(texto)
-        st.success(res)
-        
-        with st.expander("Ver Detalles Internos"):
-            st.text(sys.obtener_estado())
-            st.text("--- GLOSARIO ACTUAL ---")
-            st.text(sys.obtener_glosario())
+with col1:
+    texto = st.text_area("Texto Latín/Árabe", height=150, placeholder="Escribe aquí tu texto...")
+
+    if st.button("TRADUCIR", type="primary"):
+        if texto:
+            with st.spinner("Procesando..."):
+                try:
+                    res = sys.traducir(texto)
+                    st.success("### Traducción:")
+                    st.write(res)
+                    
+                    # Mostrar detalles técnicos en un desplegable
+                    with st.expander("Ver Detalles Internos (Debug)"):
+                        st.text(sys.obtener_estado())
+                        st.text("--- GLOSARIO ACTUAL ---")
+                        st.text(sys.obtener_glosario())
+                except Exception as e:
+                    st.error(f"Error durante la traducción: {e}")
+        else:
+            st.warning("Por favor escribe un texto para traducir.")
+
+with col2:
+    st.markdown("### Comandos Rápidos")
+    cmd_manual = st.text_input("Comando manual:", placeholder="[AÑADE palabra = trad]")
+    if st.button("Ejecutar"):
+        if cmd_manual:
+            resp = sys.procesar_comando(cmd_manual)
+            st.info(f"Sistema: {resp}")
