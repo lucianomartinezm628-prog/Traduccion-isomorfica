@@ -1,5 +1,7 @@
 import streamlit as st
 import google.generativeai as genai
+import time
+from google.api_core import exceptions
 
 # ==============================================================================
 # 1. CONFIGURACIÓN E INICIALIZACIÓN
@@ -11,7 +13,6 @@ st.set_page_config(
 )
 
 # --- TUS PROTOCOLOS EXACTOS (CONSTITUCIÓN) ---
-# Esta variable contiene las instrucciones que Gemini DEBE seguir rigurosamente.
 CONSTITUCION = """
 ACTÚA ESTRICTAMENTE BAJO LOS SIGUIENTES PROTOCOLOS. NO TE SALGAS DEL PERSONAJE.
 ERES EL SISTEMA DE TRADUCCIÓN ISOMÓRFICA. TU ÚNICO OBJETIVO ES EJECUTAR ESTAS REGLAS:
@@ -94,7 +95,46 @@ Reconoce y ejecuta comandos como: [GLOSARIO], [ESTADO], [PAUSA], [FORZAR], [ACTU
 """
 
 # ==============================================================================
-# 2. INTERFAZ Y LÓGICA DE CHAT
+# 2. FUNCIONES AUXILIARES (MANEJO DE ERRORES)
+# ==============================================================================
+
+def generar_respuesta_con_retry(model, prompt, chat_history):
+    """
+    Intenta generar respuesta manejando el error 429 (Cuota excedida)
+    con espera exponencial (Backoff).
+    """
+    max_retries = 3
+    base_wait = 10 # Segundos de espera inicial
+
+    for attempt in range(max_retries):
+        try:
+            # Iniciamos el chat con el historial
+            chat = model.start_chat(history=chat_history)
+            
+            # Devolvemos el generador de respuesta (stream)
+            return chat.send_message(prompt, stream=True)
+
+        except exceptions.ResourceExhausted:
+            # Error 429: Cuota excedida
+            wait_time = base_wait * (attempt + 1)
+            msg = f"⏳ Tráfico alto (Error 429). Reintentando en {wait_time}s... (Intento {attempt+1}/{max_retries})"
+            st.toast(msg, icon="⚠️")
+            time.sleep(wait_time)
+            continue
+        
+        except exceptions.NotFound:
+             st.error("❌ Error 404: El modelo seleccionado no está disponible en tu región o fue retirado. Cambia el modelo en la barra lateral.")
+             return None
+             
+        except Exception as e:
+            st.error(f"❌ Error inesperado: {str(e)}")
+            return None
+    
+    st.error("⛔ Se agotaron los intentos. El servicio está saturado. Intenta con un modelo 'Lite' o espera un minuto.")
+    return None
+
+# ==============================================================================
+# 3. INTERFAZ Y LÓGICA DE CHAT
 # ==============================================================================
 
 def main():
@@ -103,12 +143,25 @@ def main():
         st.header("⚙️ Configuración P0")
         api_key = st.text_input("Gemini API Key", type="password")
         
-        # Selección de modelo (Tu lista compatible)
-        modelo = st.selectbox("Modelo", [
-            "gemini-1.5-flash",       # Recomendado: Rápido y ventana de contexto grande
-            "gemini-2.0-flash-lite",  # Opción ligera
-            "gemini-2.0-flash",       # Potente
-        ])
+        # LISTA ESTRICTA DE TUS MODELOS COMPATIBLES
+        # Se pone primero el más seguro (Latest)
+        modelos_disponibles = [
+            "gemini-flash-latest",          # Alias seguro (suele ser 1.5 o 2.0 estable)
+            "gemini-flash-lite-latest",     # Alias ligero seguro
+            "gemini-2.0-flash-lite",        # Rápido, propenso a 429 en free tier
+            "gemini-2.0-flash",             # Potente, propenso a 429
+            "gemini-2.5-flash-lite",        # Preview
+            "gemini-2.5-flash",             # Preview
+            "gemini-pro-latest",
+            "gemma-3-27b-it"                # Modelo abierto servido por API
+        ]
+        
+        modelo = st.selectbox(
+            "Modelo Activo", 
+            modelos_disponibles, 
+            index=0,
+            help="Si recibes errores de 'Quota exceeded', prueba con 'flash-latest' o 'lite'."
+        )
         
         st.divider()
         st.info("Sistema cargado con Protocolos P0-P11.")
@@ -118,7 +171,7 @@ def main():
             st.rerun()
 
     st.title("🛡️ Sistema de Traducción Isomórfica")
-    st.caption("Interfaz de Chat Estricto. La IA actúa como el Sistema.")
+    st.caption(f"Operando con: **{modelo}** | Temperatura: 0.0 (Estricta)")
 
     # --- Inicializar Historial ---
     if "messages" not in st.session_state:
@@ -144,51 +197,53 @@ def main():
             st.markdown(prompt)
 
         # 2. Llamar a Gemini
-        try:
-            genai.configure(api_key=api_key)
-            
-            # Configuración ESTRICTA (Temperature 0 = Robot)
-            generation_config = {
-                "temperature": 0.0,
-                "top_p": 1,
-                "top_k": 1,
-                "max_output_tokens": 8192,
-            }
+        genai.configure(api_key=api_key)
+        
+        # Configuración ESTRICTA
+        generation_config = {
+            "temperature": 0.0,
+            "top_p": 1,
+            "top_k": 1,
+            "max_output_tokens": 8192,
+        }
 
-            model = genai.GenerativeModel(
+        try:
+            model_instance = genai.GenerativeModel(
                 model_name=modelo,
-                system_instruction=CONSTITUCION, # <--- AQUÍ VIVE TU SISTEMA
+                system_instruction=CONSTITUCION,
                 generation_config=generation_config
             )
 
-            # Construir historial para la API
-            chat_history = []
-            for m in st.session_state.messages:
-                # Convertir formato streamlit a formato gemini
+            # Preparar historial para la API
+            chat_history_api = []
+            for m in st.session_state.messages[:-1]: # Excluir el último prompt que ya enviamos
                 role = "user" if m["role"] == "user" else "model"
-                chat_history.append({"role": role, "parts": [m["content"]]})
+                chat_history_api.append({"role": role, "parts": [m["content"]]})
 
-            # Generar respuesta (Stream para que se vea como escribe)
+            # Generar respuesta (Con reintentos)
             with st.chat_message("assistant"):
                 response_placeholder = st.empty()
                 full_response = ""
                 
-                # Enviamos el historial completo para que recuerde el contexto
-                chat = model.start_chat(history=chat_history[:-1]) # Todo menos el último que enviamos ahora
-                response = chat.send_message(prompt, stream=True)
+                # Llamada segura con retry
+                response_stream = generar_respuesta_con_retry(model_instance, prompt, chat_history_api)
                 
-                for chunk in response:
-                    if chunk.text:
-                        full_response += chunk.text
-                        response_placeholder.markdown(full_response + "▌")
-                
-                response_placeholder.markdown(full_response)
-            
-            # 3. Guardar respuesta asistente
-            st.session_state.messages.append({"role": "assistant", "content": full_response})
+                if response_stream:
+                    try:
+                        for chunk in response_stream:
+                            if chunk.text:
+                                full_response += chunk.text
+                                response_placeholder.markdown(full_response + "▌")
+                        
+                        response_placeholder.markdown(full_response)
+                        
+                        # 3. Guardar respuesta asistente solo si hubo éxito
+                        st.session_state.messages.append({"role": "assistant", "content": full_response})
+                    except Exception as stream_err:
+                        st.error(f"Error procesando respuesta: {stream_err}")
 
         except Exception as e:
-            st.error(f"Error del Sistema: {str(e)}")
+            st.error(f"Error de Configuración: {str(e)}")
 
 if __name__ == "__main__":
     main()
