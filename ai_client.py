@@ -1,75 +1,59 @@
-# ai_client.py
-import os
-import json
+import streamlit as st
 import google.generativeai as genai
-from typing import List, Dict, Any
+import json
+import os
 
-# Configura tu API KEY aquí o en variables de entorno
-# os.environ["GOOGLE_API_KEY"] = "TU_API_KEY_DE_GOOGLE_AI_STUDIO"
-genai.configure(api_key=os.environ["GOOGLE_API_KEY"])
+# --- LÓGICA DE AUTENTICACIÓN ROBUSTA ---
+
+# 1. Intentamos obtener la API KEY de los Secretos de Streamlit (Prioridad)
+if "GOOGLE_API_KEY" in st.secrets:
+    api_key = st.secrets["GOOGLE_API_KEY"]
+
+# 2. Si no está, intentamos variables de entorno (para uso local)
+else:
+    api_key = os.getenv("GOOGLE_API_KEY")
+
+# 3. Configuración condicional
+if api_key:
+    genai.configure(api_key=api_key)
+else:
+    # No configuramos todavía para evitar que la app explote al iniciarse.
+    # Se mostrará un error visual en la interfaz más adelante.
+    pass
 
 class GeminiClient:
     def __init__(self):
-        # Usamos flash para velocidad o pro para mayor razonamiento etimológico
-        self.model = genai.GenerativeModel('gemini-1.5-flash',
-            generation_config={"response_mime_type": "application/json"})
+        # Verificación en tiempo de ejecución
+        if not api_key:
+            st.error("⚠️ ERROR CRÍTICO: No se detectó la GOOGLE_API_KEY. Ve a Settings -> Secrets en Streamlit Cloud y configúrala.")
+            # Creamos un objeto dummy para evitar error de atributo, 
+            # aunque las llamadas fallarán controladamente
+            self.model = None 
+            return
 
-    def consultar_nucleo(self, token: str, contexto: str) -> List[Dict[str, Any]]:
-        """
-        Ejecuta P4 (Núcleos) usando Gemini.
-        Retorna una lista de candidatos etimológicos.
-        """
-        prompt = f"""
-        Actúa como un filólogo experto en árabe clásico, latín y griego.
-        Sigue el PROTOCOLO P4 (Preferencia Etimológica).
-
-        TOKEN A ANALIZAR: "{token}"
-        CONTEXTO DE LA FRASE: "{contexto}"
-
-        TU TAREA:
-        1. Identifica la raíz del token árabe.
-        2. Proporciona candidatos de traducción en español basándote en la JERARQUÍA: [LENGUA_FUENTE > LATINA > GRIEGA > ÁRABE > TÉCNICA].
-        3. Prioriza la etimología sobre el uso técnico si es metaforizable.
-
-        Responde ÚNICAMENTE con este JSON:
-        [
-            {{
-                "termino": "traducción_propuesta",
-                "origen": "LATINA" | "GRIEGA" | "ARABE" | "TECNICA",
-                "raiz": "raíz_etimológica",
-                "derivacion_existe": true/false (¿existe esta palabra en español?),
-                "es_metafora_viable": true/false
-            }},
-            ... (más candidatos si hay ambigüedad)
-        ]
-        """
-        
         try:
-            response = self.model.generate_content(prompt)
-            return json.loads(response.text)
+            self.model = genai.GenerativeModel(
+                'gemini-1.5-flash',
+                generation_config={"response_mime_type": "application/json"}
+            )
         except Exception as e:
-            print(f"Error consultando a Gemini para '{token}': {e}")
-            return [] # Retorna lista vacía para que el sistema use fallback (P6)
+            st.error(f"Error conectando con Gemini: {e}")
 
-    def consultar_particula(self, token: str, funcion_sintactica: str) -> List[Dict[str, Any]]:
-        """
-        Ejecuta P5 (Partículas) usando Gemini.
-        """
-        prompt = f"""
-        Actúa como experto en gramática comparada árabe-español.
-        TOKEN: "{token}"
-        FUNCIÓN SINTÁCTICA DETECTADA: "{funcion_sintactica}"
+    def consultar_nucleo(self, token: str, contexto: str) -> list:
+        if not self.model: return []
         
-        Dame candidatos de traducción (preposiciones/conectores) que cumplan:
-        1. Cercanía etimológica.
-        2. Validez funcional en español.
-
-        Responde JSON:
+        prompt = f"""
+        Actúa como filólogo experto (Protocolo P4).
+        Token: "{token}"
+        Contexto: "{contexto}"
+        Responde SOLO JSON:
         [
             {{
-                "termino": "propuesta",
-                "es_etimologico": true/false,
-                "cierra_regimen": true/false
+                "termino": "traducción",
+                "origen": "LATINA/GRIEGA/ARABE/TECNICA",
+                "raiz": "raíz_detectada",
+                "derivacion_existe": true,
+                "es_metafora_viable": false
             }}
         ]
         """
@@ -77,7 +61,30 @@ class GeminiClient:
             response = self.model.generate_content(prompt)
             return json.loads(response.text)
         except Exception as e:
-            print(f"Error consultando partícula '{token}': {e}")
+            print(f"Error IA: {e}")
+            return []
+
+    def consultar_particula(self, token: str, funcion_sintactica: str) -> list:
+        if not self.model: return []
+
+        prompt = f"""
+        Actúa como experto gramatical (Protocolo P5).
+        Partícula: "{token}"
+        Función: "{funcion_sintactica}"
+        Responde SOLO JSON:
+        [
+            {{
+                "termino": "traducción",
+                "es_etimologico": true,
+                "cierra_regimen": true
+            }}
+        ]
+        """
+        try:
+            response = self.model.generate_content(prompt)
+            return json.loads(response.text)
+        except Exception as e:
+            print(f"Error IA: {e}")
             return []
 
 # Instancia global
