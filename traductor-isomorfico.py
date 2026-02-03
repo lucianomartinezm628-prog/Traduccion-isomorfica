@@ -62,7 +62,8 @@ def configure_genai():
         st.error("⚠️ Por favor ingresa tu API Key en la barra lateral para continuar.")
         return None
     genai.configure(api_key=api_key)
-    return genai.GenerativeModel('models/gemini-1.5-flash')
+    return genai.GenerativeModel('gemini-pro')
+
 
 # --- Prompt del Sistema (La "Constitución" P2 inyectada en la IA) ---
 SYSTEM_PROMPT = """
