@@ -3,89 +3,82 @@ import google.generativeai as genai
 import json
 import os
 
-# --- LÓGICA DE AUTENTICACIÓN ROBUSTA ---
+# --- LISTA DE OPCIONES DE MODELOS ---
+MODELOS_DISPONIBLES = {
+    "flash_2.0": "gemini-2.0-flash",       # Recomendado: Rápido y moderno
+    "flash_lite": "gemini-2.0-flash-lite", # Muy económico
+    "pro_latest": "gemini-pro-latest",     # Máxima capacidad de razonamiento
+    "gemma_27b": "gemma-3-27b-it",         # Modelo abierto potente
+    "experimental": "gemini-exp-1206"      # Versión de prueba avanzada
+}
 
-# 1. Intentamos obtener la API KEY de los Secretos de Streamlit (Prioridad)
+# Selección del modelo actual (Puedes cambiar la clave aquí)
+MODELO_ACTUAL = MODELOS_DISPONIBLES["flash_2.0"]
+
+# --- LÓGICA DE AUTENTICACIÓN ---
 if "GOOGLE_API_KEY" in st.secrets:
     api_key = st.secrets["GOOGLE_API_KEY"]
-
-# 2. Si no está, intentamos variables de entorno (para uso local)
 else:
     api_key = os.getenv("GOOGLE_API_KEY")
 
-# 3. Configuración condicional
 if api_key:
     genai.configure(api_key=api_key)
-else:
-    # No configuramos todavía para evitar que la app explote al iniciarse.
-    # Se mostrará un error visual en la interfaz más adelante.
-    pass
 
 class GeminiClient:
     def __init__(self):
-        # Verificación en tiempo de ejecución
         if not api_key:
-            st.error("⚠️ ERROR CRÍTICO: No se detectó la GOOGLE_API_KEY. Ve a Settings -> Secrets en Streamlit Cloud y configúrala.")
-            # Creamos un objeto dummy para evitar error de atributo, 
-            # aunque las llamadas fallarán controladamente
+            st.error("⚠️ No se detectó la API KEY de Google.")
             self.model = None 
             return
 
         try:
+            # Iniciamos el modelo seleccionado
             self.model = genai.GenerativeModel(
-                'gemini-1.5-flash',
+                MODELO_ACTUAL, 
                 generation_config={"response_mime_type": "application/json"}
             )
+            print(f"[*] Sistema conectado al modelo: {MODELO_ACTUAL}")
         except Exception as e:
-            st.error(f"Error conectando con Gemini: {e}")
+            st.error(f"Error al inicializar el modelo {MODELO_ACTUAL}: {e}")
+            self.model = None
 
     def consultar_nucleo(self, token: str, contexto: str) -> list:
+        """Protocolo P4: Análisis etimológico de núcleos léxicos"""
         if not self.model: return []
         
         prompt = f"""
-        Actúa como filólogo experto (Protocolo P4).
-        Token: "{token}"
-        Contexto: "{contexto}"
-        Responde SOLO JSON:
-        [
-            {{
-                "termino": "traducción",
-                "origen": "LATINA/GRIEGA/ARABE/TECNICA",
-                "raiz": "raíz_detectada",
-                "derivacion_existe": true,
-                "es_metafora_viable": false
-            }}
-        ]
+        Actúa como filólogo experto siguiendo el protocolo P4.
+        Analiza el token: '{token}'
+        Contexto: '{contexto}'
+        
+        Responde exclusivamente en formato JSON con los campos: 
+        termino, origen, raiz, derivacion_existe (bool), es_metafora_viable (bool).
         """
         try:
             response = self.model.generate_content(prompt)
             return json.loads(response.text)
         except Exception as e:
-            print(f"Error IA: {e}")
+            print(f"Error en consulta de núcleo ({token}): {e}")
             return []
 
     def consultar_particula(self, token: str, funcion_sintactica: str) -> list:
+        """Protocolo P5: Análisis funcional de partículas"""
         if not self.model: return []
 
         prompt = f"""
-        Actúa como experto gramatical (Protocolo P5).
-        Partícula: "{token}"
-        Función: "{funcion_sintactica}"
-        Responde SOLO JSON:
-        [
-            {{
-                "termino": "traducción",
-                "es_etimologico": true,
-                "cierra_regimen": true
-            }}
-        ]
+        Actúa como experto gramatical siguiendo el protocolo P5.
+        Analiza la partícula: '{token}'
+        Función detectada: '{funcion_sintactica}'
+        
+        Dame candidatos de traducción en JSON con: 
+        termino, es_etimologico (bool), cierra_regimen (bool).
         """
         try:
             response = self.model.generate_content(prompt)
             return json.loads(response.text)
         except Exception as e:
-            print(f"Error IA: {e}")
+            print(f"Error en consulta de partícula ({token}): {e}")
             return []
 
-# Instancia global
+# Instancia global para el sistema
 ai_engine = GeminiClient()
