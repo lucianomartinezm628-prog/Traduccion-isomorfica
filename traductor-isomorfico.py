@@ -65,8 +65,9 @@ PROTOCOLO 9 (FORMACIÓN):
 def configure_genai(api_key):
     if not api_key:
         return None
-    genai.configure(api_key=api_key)
-    # Cambiamos a gemini-1.5-flash que es el estándar actual más estable
+    # Forzamos la configuración a la versión estable
+    genai.configure(api_key=api_key, transport='rest')
+    # Usamos el nombre del modelo sin el prefijo 'models/'
     return genai.GenerativeModel('gemini-1.5-flash')
 
 
