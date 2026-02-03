@@ -66,8 +66,9 @@ def configure_genai(api_key):
     if not api_key:
         return None
     genai.configure(api_key=api_key)
-    # Usamos el modelo más compatible detectado anteriormente
-    return genai.GenerativeModel('models/gemini-pro')
+    # Cambiamos a gemini-1.5-flash que es el estándar actual más estable
+    return genai.GenerativeModel('gemini-1.5-flash')
+
 
 def p10_a_cleaning(text):
     """P10.A: Limpieza y Normalización"""
