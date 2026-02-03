@@ -9,12 +9,12 @@ from google.api_core import exceptions
 # --- LISTA DE OPCIONES DE MODELOS ---
 MODELOS_DISPONIBLES = {
     "flash_2.0": "gemini-2.0-flash",       
-    "flash_lite": "gemini-2.0-flash-lite", 
+    "flash_lite": "gemini-flash-lite-latest", # <--- EL ELEGIDO
     "pro_latest": "gemini-pro-latest",     
 }
 
 # Selección del modelo actual
-MODELO_ACTUAL = MODELOS_DISPONIBLES["flash_2.0"]
+MODELO_ACTUAL = MODELOS_DISPONIBLES["flash_lite"]
 
 # --- AUTENTICACIÓN ---
 if "GOOGLE_API_KEY" in st.secrets:
@@ -44,8 +44,8 @@ class GeminiClient:
 
     def _generar_con_retry(self, prompt: str, intentos_max: int = 5) -> list:
         """
-        Función interna que maneja los reintentos automáticos
-        cuando se supera la cuota (Error 429).
+        Maneja automáticamente el error 429 (Cuota excedida)
+        esperando unos segundos antes de reintentar.
         """
         if not self.model: return []
 
@@ -55,15 +55,24 @@ class GeminiClient:
                 return json.loads(response.text)
             
             except exceptions.ResourceExhausted:
-                # ERROR 429: Cuota excedida. Esperar y reintentar.
-                tiempo_espera = (2 ** i) + random.uniform(0, 1) # Espera exponencial: 1s, 2s, 4s...
-                print(f"⚠️ Cuota excedida (429). Esperando {tiempo_espera:.2f}s para reintentar...")
-                st.toast(f"⏳ Tráfico alto en IA. Esperando {int(tiempo_espera)}s...", icon="🚦")
+                # ERROR 429: Cuota excedida.
+                # Espera exponencial: 2s, 4s, 8s... + un poco de azar para no colisionar
+                tiempo_espera = (2 ** (i + 1)) + random.uniform(0, 1)
+                
+                msg = f"🚦 Tráfico alto en {MODELO_ACTUAL}. Esperando {int(tiempo_espera)}s..."
+                print(msg)
+                # Mostramos un aviso flotante en la app si es posible
+                try:
+                    st.toast(msg)
+                except:
+                    pass
+                
                 time.sleep(tiempo_espera)
                 continue
                 
             except Exception as e:
                 print(f"❌ Error irrecuperable en consulta IA: {e}")
+                # Si falla, devolvemos lista vacía para que el sistema use P6 (neologismos)
                 return []
         
         print("❌ Se agotaron los reintentos.")
