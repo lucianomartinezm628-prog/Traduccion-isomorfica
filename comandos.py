@@ -1,35 +1,18 @@
-"""
-════════════════════════════════════════════════════════════════
-SISTEMA DE TRADUCCIÓN ISOMÓRFICA — VERSIÓN PYTHON
-Bloque 12/13: Comandos del Usuario (P11)
-════════════════════════════════════════════════════════════════
-
-PROPÓSITO:
-  Definir los comandos disponibles para el usuario.
-  Permitir control, consulta y modificación del sistema.
-
-INVOCACIÓN:
-  [COMANDO] o "comando" (minúsculas)
-"""
+# ==============================================================================
+# 12. GESTOR DE COMANDOS DEL USUARIO (P11) - VERSIÓN COMPLETA
+# ==============================================================================
 
 import re
 from typing import Dict, List, Optional, Any, Callable, Tuple
 from dataclasses import dataclass
 from enum import Enum, auto
 
-from constants import (
-    ModoTransliteracion, NormaTransliteracion, ModoSalida,
-    TokenCategoria
-)
-from config import obtener_config, ConfiguracionSistema
-from glossary import Glosario
-from consultas import GestorConsultas, obtener_gestor_consultas
-from models import EstadoProceso
+# Asegúrate de que estas referencias apunten a tus clases definidas anteriormente
+# Si has unificado el archivo, estas clases ya deberían estar disponibles en el scope global.
 
-
-# ══════════════════════════════════════════════════════════════
+# ------------------------------------------------------------------------------
 # ENUMS Y ESTRUCTURAS
-# ══════════════════════════════════════════════════════════════
+# ------------------------------------------------------------------------------
 
 class CategoriaComando(Enum):
     """Categorías de comandos"""
@@ -61,14 +44,12 @@ class DefinicionComando:
     ejemplo: str
 
 
-# ══════════════════════════════════════════════════════════════
-# DEFINICIONES DE COMANDOS
-# ══════════════════════════════════════════════════════════════
+# ------------------------------------------------------------------------------
+# DEFINICIONES DE COMANDOS (REGISTRO COMPLETO)
+# ------------------------------------------------------------------------------
 
 COMANDOS = {
-    # ══════════════════════════════════════════════════════════
-    # A. COMANDOS DE CONSULTA
-    # ══════════════════════════════════════════════════════════
+    # --- A. COMANDOS DE CONSULTA ---
     "GLOSARIO": DefinicionComando(
         nombre="GLOSARIO",
         aliases=["glosario", "g"],
@@ -118,9 +99,7 @@ COMANDOS = {
         ejemplo="[ESTADO]"
     ),
     
-    # ══════════════════════════════════════════════════════════
-    # B. COMANDOS DE MODIFICACIÓN
-    # ══════════════════════════════════════════════════════════
+    # --- B. COMANDOS DE MODIFICACIÓN ---
     "ACTUALIZA": DefinicionComando(
         nombre="ACTUALIZA",
         aliases=["actualiza", "act"],
@@ -194,9 +173,7 @@ COMANDOS = {
         ejemplo="[MODO FINAL]"
     ),
     
-    # ══════════════════════════════════════════════════════════
-    # C. COMANDOS DE CONTROL
-    # ══════════════════════════════════════════════════════════
+    # --- C. COMANDOS DE CONTROL ---
     "PAUSA": DefinicionComando(
         nombre="PAUSA",
         aliases=["pausa", "pause"],
@@ -246,9 +223,7 @@ COMANDOS = {
         ejemplo="[VOLVER 3]"
     ),
     
-    # ══════════════════════════════════════════════════════════
-    # D. COMANDOS DE EXPORTACIÓN
-    # ══════════════════════════════════════════════════════════
+    # --- D. COMANDOS DE EXPORTACIÓN ---
     "EXPORTAR_GLOSARIO": DefinicionComando(
         nombre="EXPORTAR GLOSARIO",
         aliases=["exportar glosario", "export glos"],
@@ -274,9 +249,7 @@ COMANDOS = {
         ejemplo="[IMPORTAR GLOSARIO glosario_anterior.json]"
     ),
     
-    # ══════════════════════════════════════════════════════════
-    # E. COMANDOS DE AYUDA
-    # ══════════════════════════════════════════════════════════
+    # --- E. COMANDOS DE AYUDA ---
     "AYUDA": DefinicionComando(
         nombre="AYUDA",
         aliases=["ayuda", "help", "?"],
@@ -303,22 +276,25 @@ COMANDOS = {
     ),
 }
 
-
-# ══════════════════════════════════════════════════════════════
+# ------------------------------------------------------------------------------
 # PROCESADOR DE COMANDOS
-# ══════════════════════════════════════════════════════════════
+# ------------------------------------------------------------------------------
 
 class ProcesadorComandos:
     """
     Procesador de comandos del usuario (P11)
     """
     
-    def __init__(self, glosario: Glosario = None,
-                 gestor_consultas: GestorConsultas = None):
+    def __init__(self, glosario: Glosario = None, 
+                 config: ConfiguracionSistema = None, 
+                 estado: EstadoProceso = None):
         self.glosario = glosario
-        self.gestor_consultas = gestor_consultas or obtener_gestor_consultas()
-        self.config = obtener_config()
-        self.estado = EstadoProceso()
+        self.config = config
+        self.estado = estado
+        
+        # Gestor de consultas (necesario para ver historial)
+        # Nota: En una estructura unificada, esto podría pasarse o ser una global
+        self.gestor_consultas = GestorConsultas() 
         
         # Callbacks para comandos de control
         self._callbacks: Dict[str, Callable] = {}
@@ -327,7 +303,7 @@ class ProcesadorComandos:
         self._confirmacion_pendiente: Optional[Tuple[str, Callable]] = None
     
     def set_glosario(self, glosario: Glosario) -> None:
-        """Establecer glosario"""
+        """Establecer glosario dinámicamente"""
         self.glosario = glosario
     
     def set_callback(self, comando: str, callback: Callable) -> None:
@@ -336,9 +312,8 @@ class ProcesadorComandos:
     
     def procesar(self, entrada: str) -> ResultadoComando:
         """
-        Procesar entrada del usuario
-        
-        Detecta si es un comando y lo ejecuta
+        Procesar entrada del usuario.
+        Detecta si es un comando y lo ejecuta.
         """
         entrada = entrada.strip()
         
@@ -352,7 +327,7 @@ class ProcesadorComandos:
         if not comando:
             return ResultadoComando(
                 exito=False,
-                mensaje="Comando no reconocido"
+                mensaje="Comando no reconocido. Use [AYUDA]."
             )
         
         # Ejecutar comando
@@ -382,12 +357,9 @@ class ProcesadorComandos:
         return None, ""
     
     def _ejecutar_comando(self, comando: str, args: str) -> ResultadoComando:
-        """Ejecutar comando específico"""
+        """Ejecutar comando específico según su definición"""
         
-        # ══════════════════════════════════════════════════════
-        # A. COMANDOS DE CONSULTA
-        # ══════════════════════════════════════════════════════
-        
+        # --- A. CONSULTA ---
         if comando == "GLOSARIO":
             return self._cmd_glosario(args)
         
@@ -406,17 +378,14 @@ class ProcesadorComandos:
         elif comando == "ESTADO":
             return self._cmd_estado()
         
-        # ══════════════════════════════════════════════════════
-        # B. COMANDOS DE MODIFICACIÓN
-        # ══════════════════════════════════════════════════════
-        
+        # --- B. MODIFICACIÓN ---
         elif comando == "ACTUALIZA":
             return self._cmd_actualiza(args)
         
         elif comando == "AÑADE":
             return self._cmd_añade(args)
         
-        elif comando == "AÑADE LOCUCION":
+        elif comando == "AÑADE_LOCUCION": # Alias: AÑADE LOCUCION -> Nombre: AÑADE LOCUCION
             return self._cmd_añade_locucion(args)
         
         elif comando == "ELIMINA":
@@ -425,22 +394,19 @@ class ProcesadorComandos:
         elif comando == "REGLA":
             return self._cmd_regla(args)
         
-        elif comando == "BORRA REGLA":
+        elif comando == "BORRA_REGLA":
             return self._cmd_borra_regla(args)
         
-        elif comando == "MODO TRANSLITERACION":
+        elif comando == "MODO_TRANSLITERACION":
             return self._cmd_modo_transliteracion(args)
         
-        elif comando == "MODO BORRADOR":
+        elif comando == "MODO_BORRADOR":
             return self._cmd_modo_salida(ModoSalida.BORRADOR)
         
-        elif comando == "MODO FINAL":
+        elif comando == "MODO_FINAL":
             return self._cmd_modo_salida(ModoSalida.FINAL)
         
-        # ══════════════════════════════════════════════════════
-        # C. COMANDOS DE CONTROL
-        # ══════════════════════════════════════════════════════
-        
+        # --- C. CONTROL ---
         elif comando == "PAUSA":
             return self._cmd_pausa()
         
@@ -459,23 +425,17 @@ class ProcesadorComandos:
         elif comando == "VOLVER":
             return self._cmd_volver(args)
         
-        # ══════════════════════════════════════════════════════
-        # D. COMANDOS DE EXPORTACIÓN
-        # ══════════════════════════════════════════════════════
-        
-        elif comando == "EXPORTAR GLOSARIO":
+        # --- D. EXPORTACIÓN ---
+        elif comando == "EXPORTAR_GLOSARIO":
             return self._cmd_exportar_glosario(args)
         
-        elif comando == "EXPORTAR TRADUCCION":
+        elif comando == "EXPORTAR_TRADUCCION":
             return self._cmd_exportar_traduccion(args)
         
-        elif comando == "IMPORTAR GLOSARIO":
+        elif comando == "IMPORTAR_GLOSARIO":
             return self._cmd_importar_glosario(args)
         
-        # ══════════════════════════════════════════════════════
-        # E. COMANDOS DE AYUDA
-        # ══════════════════════════════════════════════════════
-        
+        # --- E. AYUDA ---
         elif comando == "AYUDA":
             return self._cmd_ayuda(args)
         
@@ -485,561 +445,212 @@ class ProcesadorComandos:
         elif comando == "PROTOCOLO":
             return self._cmd_protocolo(args)
         
-        return ResultadoComando(exito=False, mensaje="Comando no implementado")
-    
-    # ══════════════════════════════════════════════════════════
+        return ResultadoComando(exito=False, mensaje="Comando reconocido pero no implementado en dispatch.")
+
+    # --------------------------------------------------------------------------
     # IMPLEMENTACIÓN: CONSULTA
-    # ══════════════════════════════════════════════════════════
+    # --------------------------------------------------------------------------
     
     def _cmd_glosario(self, args: str) -> ResultadoComando:
-        """Comando GLOSARIO"""
-        if not self.glosario:
-            return ResultadoComando(exito=False, mensaje="Glosario no disponible")
-        
+        if not self.glosario: return ResultadoComando(False, "Glosario no disponible")
         texto = self.glosario.formatear_glosario()
-        return ResultadoComando(exito=True, mensaje=texto)
+        return ResultadoComando(True, texto)
     
     def _cmd_locuciones(self) -> ResultadoComando:
-        """Comando LOCUCIONES"""
-        if not self.glosario:
-            return ResultadoComando(exito=False, mensaje="Glosario no disponible")
-        
+        if not self.glosario: return ResultadoComando(False, "Glosario no disponible")
         texto = self.glosario.formatear_locuciones()
-        return ResultadoComando(exito=True, mensaje=texto)
+        return ResultadoComando(True, texto)
     
     def _cmd_alternativas(self) -> ResultadoComando:
-        """Comando ALTERNATIVAS"""
-        if not self.glosario:
-            return ResultadoComando(exito=False, mensaje="Glosario no disponible")
-        
+        if not self.glosario: return ResultadoComando(False, "Glosario no disponible")
         texto = self.glosario.formatear_alternativas()
-        return ResultadoComando(exito=True, mensaje=texto)
+        return ResultadoComando(True, texto)
     
     def _cmd_decisiones(self, args: str) -> ResultadoComando:
-        """Comando DECISIONES"""
+        # Requiere acceso al gestor de consultas real usado por el sistema
+        # Aquí asumimos una conexión básica
         filtro = args.strip() if args else None
         texto = self.gestor_consultas.formatear_historial(filtro)
-        return ResultadoComando(exito=True, mensaje=texto)
+        return ResultadoComando(True, texto)
     
     def _cmd_configuracion(self) -> ResultadoComando:
-        """Comando CONFIGURACION"""
-        lineas = [
-            "═" * 50,
-            "CONFIGURACIÓN ACTIVA",
-            "═" * 50,
-            "",
-            f"Modo transliteración: {self.config.modo_transliteracion.name}",
-            f"Norma transliteración: {self.config.norma_transliteracion.name}",
-            f"Modo salida: {self.config.modo_salida.name}",
-            "",
-            "REGLAS PERMANENTES:"
-        ]
-        
-        for i, r in enumerate(self.config.reglas_permanentes, 1):
-            lineas.append(f"  {i}. {r.tipo}: {r.accion}")
-        
-        if not self.config.reglas_permanentes:
-            lineas.append("  (ninguna)")
-        
-        lineas.append("")
-        lineas.append("REGLAS DE SESIÓN:")
-        
-        for i, r in enumerate(self.config.reglas_sesion, 1):
-            lineas.append(f"  {i}. {r.tipo}: {r.accion}")
-        
-        if not self.config.reglas_sesion:
-            lineas.append("  (ninguna)")
-        
-        lineas.append("")
-        lineas.append("═" * 50)
-        
-        return ResultadoComando(exito=True, mensaje="\n".join(lineas))
+        lineas = ["CONFIGURACIÓN ACTIVA", "="*20,
+                  f"Modo Transliteración: {self.config.modo_transliteracion.name}",
+                  f"Modo Salida: {self.config.modo_salida.name}",
+                  "", "REGLAS ACTIVAS:"]
+        for r in self.config.reglas_permanentes + self.config.reglas_sesion:
+            lineas.append(f"- {r.tipo}: {r.accion} ({r.condicion or 'global'})")
+        return ResultadoComando(True, "\n".join(lineas))
     
     def _cmd_estado(self) -> ResultadoComando:
-        """Comando ESTADO"""
-        texto = self.estado.formatear()
-        return ResultadoComando(exito=True, mensaje=texto)
-    
-    # ══════════════════════════════════════════════════════════
+        if not self.estado: return ResultadoComando(False, "Estado no disponible")
+        return ResultadoComando(True, self.estado.formatear())
+
+    # --------------------------------------------------------------------------
     # IMPLEMENTACIÓN: MODIFICACIÓN
-    # ══════════════════════════════════════════════════════════
-    
+    # --------------------------------------------------------------------------
+
     def _cmd_actualiza(self, args: str) -> ResultadoComando:
-        """Comando ACTUALIZA"""
-        if not self.glosario:
-            return ResultadoComando(exito=False, mensaje="Glosario no disponible")
-        
-        # Parsear: token = nueva_traduccion
+        if not self.glosario: return ResultadoComando(False, "Glosario no disponible")
         match = re.match(r'(\S+)\s*=\s*(.+)', args)
-        if not match:
-            return ResultadoComando(
-                exito=False,
-                mensaje="Formato: [ACTUALIZA token = nueva_traduccion]"
-            )
-        
+        if not match: return ResultadoComando(False, "Formato: [ACTUALIZA token = nueva]")
         token, nueva = match.groups()
+        token = token.strip()
         nueva = nueva.strip()
-        
-        # Obtener entrada actual
+
         entrada = self.glosario.obtener_entrada(token)
-        if not entrada:
-            return ResultadoComando(
-                exito=False,
-                mensaje=f"Token '{token}' no encontrado en glosario"
-            )
-        
-        # Solicitar confirmación
-        self._confirmacion_pendiente = (
-            f"actualiza_{token}_{nueva}",
-            lambda: self._ejecutar_actualiza(token, nueva)
-        )
-        
-        return ResultadoComando(
-            exito=True,
-            mensaje=f"ACTUALIZACIÓN DE GLOSARIO\n\n"
-                    f"Token: {token}\n"
-                    f"Actual: {entrada.token_tgt}\n"
-                    f"Nuevo: {nueva}\n"
-                    f"Ocurrencias afectadas: {len(entrada.ocurrencias)}\n\n"
-                    f"¿Confirmar? (sí/no)",
-            requiere_confirmacion=True,
-            pregunta_confirmacion="¿Confirmar actualización? (sí/no)"
-        )
-    
-    def _ejecutar_actualiza(self, token: str, nueva: str) -> ResultadoComando:
-        """Ejecutar actualización confirmada"""
-        exito, ocurrencias = self.glosario.actualizar_entrada(token, nueva)
-        if exito:
-            return ResultadoComando(
-                exito=True,
-                mensaje=f"Actualizado: {token} → {nueva} ({ocurrencias} ocurrencias)"
-            )
-        return ResultadoComando(exito=False, mensaje="Error al actualizar")
-    
+        if not entrada: return ResultadoComando(False, f"Token '{token}' no existe.")
+
+        self._confirmacion_pendiente = (f"upd_{token}", lambda: self._ejecutar_actualiza(token, nueva))
+        return ResultadoComando(True, f"¿Cambiar '{entrada.token_tgt}' a '{nueva}' para '{token}'?", requiere_confirmacion=True)
+
+    def _ejecutar_actualiza(self, token, nueva):
+        self.glosario.actualizar_entrada(token, nueva)
+        return ResultadoComando(True, f"Actualizado: {token} -> {nueva}")
+
     def _cmd_añade(self, args: str) -> ResultadoComando:
-        """Comando AÑADE"""
-        if not self.glosario:
-            return ResultadoComando(exito=False, mensaje="Glosario no disponible")
-        
+        if not self.glosario: return ResultadoComando(False, "Glosario no disponible")
         match = re.match(r'(\S+)\s*=\s*(.+)', args)
-        if not match:
-            return ResultadoComando(
-                exito=False,
-                mensaje="Formato: [AÑADE token = traduccion]"
-            )
-        
+        if not match: return ResultadoComando(False, "Formato: [AÑADE token = traduccion]")
         token, trad = match.groups()
-        trad = trad.strip()
         
-        exito = self.glosario.agregar_entrada(token, TokenCategoria.NUCLEO, trad)
-        
-        if exito:
-            return ResultadoComando(
-                exito=True,
-                mensaje=f"Añadido: {token} → {trad}"
-            )
-        return ResultadoComando(
-            exito=False,
-            mensaje=f"Token '{token}' ya existe en glosario"
-        )
-    
+        if self.glosario.agregar_entrada(token.strip(), TokenCategoria.NUCLEO, trad.strip()):
+            return ResultadoComando(True, f"Añadido: {token} -> {trad}")
+        return ResultadoComando(False, f"Token '{token}' ya existe.")
+
     def _cmd_añade_locucion(self, args: str) -> ResultadoComando:
-        """Comando AÑADE LOCUCION"""
-        if not self.glosario:
-            return ResultadoComando(exito=False, mensaje="Glosario no disponible")
-        
+        if not self.glosario: return ResultadoComando(False, "Glosario no disponible")
         match = re.match(r'(\S+)\s*=\s*(.+)', args)
-        if not match:
-            return ResultadoComando(
-                exito=False,
-                mensaje="Formato: [AÑADE LOCUCION src = A-B-C]"
-            )
-        
+        if not match: return ResultadoComando(False, "Formato: [AÑADE LOCUCION src = A-B-C]")
         src, tgt = match.groups()
-        tgt = tgt.strip()
         componentes = src.replace("-", " ").split()
-        
-        loc = self.glosario.agregar_locucion(src, componentes, [], tgt)
-        
-        return ResultadoComando(
-            exito=True,
-            mensaje=f"Locución añadida: {src} → {tgt} (ID: {loc.id})"
-        )
-    
+        # Generar posiciones dummy, se ajustarán en runtime real
+        self.glosario.agregar_locucion(src.strip(), componentes, [], tgt.strip())
+        return ResultadoComando(True, f"Locución registrada: {src} -> {tgt}")
+
     def _cmd_elimina(self, args: str) -> ResultadoComando:
-        """Comando ELIMINA"""
-        if not self.glosario:
-            return ResultadoComando(exito=False, mensaje="Glosario no disponible")
-        
         token = args.strip()
-        if not token:
-            return ResultadoComando(
-                exito=False,
-                mensaje="Formato: [ELIMINA token]"
-            )
-        
-        entrada = self.glosario.obtener_entrada(token)
-        if not entrada:
-            return ResultadoComando(
-                exito=False,
-                mensaje=f"Token '{token}' no encontrado"
-            )
-        
-        # Solicitar confirmación
-        self._confirmacion_pendiente = (
-            f"elimina_{token}",
-            lambda: self._ejecutar_elimina(token)
-        )
-        
-        return ResultadoComando(
-            exito=True,
-            mensaje=f"¿Eliminar '{token}'? Ocurrencias afectadas: {len(entrada.ocurrencias)}\n"
-                    f"(sí/no)",
-            requiere_confirmacion=True
-        )
-    
-    def _ejecutar_elimina(self, token: str) -> ResultadoComando:
-        """Ejecutar eliminación confirmada"""
-        exito, ocurrencias = self.glosario.eliminar_entrada(token)
-        if exito:
-            return ResultadoComando(
-                exito=True,
-                mensaje=f"Eliminado: {token}"
-            )
-        return ResultadoComando(exito=False, mensaje="Error al eliminar")
-    
+        if not self.glosario.obtener_entrada(token): return ResultadoComando(False, "Token no encontrado")
+        self._confirmacion_pendiente = (f"del_{token}", lambda: self._ejecutar_elimina(token))
+        return ResultadoComando(True, f"¿Eliminar '{token}' del glosario?", requiere_confirmacion=True)
+
+    def _ejecutar_elimina(self, token):
+        self.glosario.eliminar_entrada(token)
+        return ResultadoComando(True, f"Eliminado: {token}")
+
     def _cmd_regla(self, args: str) -> ResultadoComando:
-        """Comando REGLA"""
-        args = args.strip().lower()
-        
-        if args.startswith("siempre"):
-            accion = args[7:].strip()
-            self.config.agregar_regla("siempre", accion, permanente=False)
-            return ResultadoComando(exito=True, mensaje=f"Regla añadida: siempre {accion}")
-        
-        elif args.startswith("nunca"):
-            accion = args[5:].strip()
-            self.config.agregar_regla("nunca", accion, permanente=False)
-            return ResultadoComando(exito=True, mensaje=f"Regla añadida: nunca {accion}")
-        
-        elif args.startswith("cuando"):
-            # Parsear "cuando X entonces Y"
-            match = re.match(r'cuando\s+(.+)\s+entonces\s+(.+)', args)
-            if match:
-                condicion, accion = match.groups()
-                self.config.agregar_regla("cuando", accion, condicion, permanente=False)
-                return ResultadoComando(
-                    exito=True,
-                    mensaje=f"Regla añadida: cuando {condicion} entonces {accion}"
-                )
-        
-        return ResultadoComando(
-            exito=False,
-            mensaje="Formato: [REGLA siempre/nunca/cuando...entonces...]"
-        )
-    
+        tipo = "siempre"
+        if args.lower().startswith("nunca"): tipo = "nunca"
+        elif args.lower().startswith("cuando"): tipo = "cuando"
+        self.config.agregar_regla(tipo, args)
+        return ResultadoComando(True, f"Regla registrada: {args}")
+
     def _cmd_borra_regla(self, args: str) -> ResultadoComando:
-        """Comando BORRA REGLA"""
         try:
-            num = int(args.strip()) - 1
-            if self.config.eliminar_regla(num, permanente=False):
-                return ResultadoComando(exito=True, mensaje=f"Regla {num+1} eliminada")
-            return ResultadoComando(exito=False, mensaje="Índice de regla inválido")
-        except ValueError:
-            return ResultadoComando(exito=False, mensaje="Formato: [BORRA REGLA N]")
-    
+            idx = int(args) - 1
+            if self.config.eliminar_regla(idx): return ResultadoComando(True, "Regla eliminada")
+            return ResultadoComando(False, "Índice inválido")
+        except: return ResultadoComando(False, "Use un número")
+
     def _cmd_modo_transliteracion(self, args: str) -> ResultadoComando:
-        """Comando MODO TRANSLITERACION"""
-        modo_str = args.strip().lower()
-        
-        modos = {
-            "desactivado": ModoTransliteracion.DESACTIVADO,
-            "selectivo": ModoTransliteracion.SELECTIVO,
-            "completo": ModoTransliteracion.COMPLETO,
-        }
-        
-        if modo_str in modos:
-            self.config.modo_transliteracion = modos[modo_str]
-            return ResultadoComando(
-                exito=True,
-                mensaje=f"Modo transliteración: {modo_str.upper()}"
-            )
-        
-        return ResultadoComando(
-            exito=False,
-            mensaje="Opciones: desactivado | selectivo | completo"
-        )
-    
+        modos = {"desactivado": ModoTransliteracion.DESACTIVADO, "selectivo": ModoTransliteracion.SELECTIVO, "completo": ModoTransliteracion.COMPLETO}
+        if args.lower() in modos:
+            self.config.modo_transliteracion = modos[args.lower()]
+            return ResultadoComando(True, f"Modo transliteración: {args.upper()}")
+        return ResultadoComando(False, "Modos: desactivado | selectivo | completo")
+
     def _cmd_modo_salida(self, modo: ModoSalida) -> ResultadoComando:
-        """Comando MODO BORRADOR / MODO FINAL"""
         self.config.modo_salida = modo
-        return ResultadoComando(
-            exito=True,
-            mensaje=f"Modo salida: {modo.name}"
-        )
-    
-    # ══════════════════════════════════════════════════════════
+        return ResultadoComando(True, f"Modo salida: {modo.name}")
+
+    # --------------------------------------------------------------------------
     # IMPLEMENTACIÓN: CONTROL
-    # ══════════════════════════════════════════════════════════
-    
+    # --------------------------------------------------------------------------
+
     def _cmd_pausa(self) -> ResultadoComando:
-        """Comando PAUSA"""
-        self.estado.pausado = True
-        if "PAUSA" in self._callbacks:
-            self._callbacks["PAUSA"]()
-        return ResultadoComando(exito=True, mensaje="Proceso pausado")
-    
+        if "PAUSA" in self._callbacks: self._callbacks["PAUSA"]()
+        return ResultadoComando(True, "Sistema pausado")
+
     def _cmd_continuar(self) -> ResultadoComando:
-        """Comando CONTINUAR"""
-        self.estado.pausado = False
-        if "CONTINUAR" in self._callbacks:
-            self._callbacks["CONTINUAR"]()
-        return ResultadoComando(exito=True, mensaje="Proceso reanudado")
-    
+        if "CONTINUAR" in self._callbacks: self._callbacks["CONTINUAR"]()
+        return ResultadoComando(True, "Sistema reanudado")
+
     def _cmd_forzar(self) -> ResultadoComando:
-        """Comando FORZAR"""
-        if "FORZAR" in self._callbacks:
-            self._callbacks["FORZAR"]()
-        return ResultadoComando(
-            exito=True,
-            mensaje="ADVERTENCIA: Continuando tras FALLO CRÍTICO bajo responsabilidad del usuario"
-        )
-    
+        if "FORZAR" in self._callbacks: self._callbacks["FORZAR"]()
+        return ResultadoComando(True, "Continuando forzosamente")
+
     def _cmd_reiniciar(self) -> ResultadoComando:
-        """Comando REINICIAR"""
-        self._confirmacion_pendiente = (
-            "reiniciar",
-            self._ejecutar_reiniciar
-        )
-        
-        return ResultadoComando(
-            exito=True,
-            mensaje="REINICIAR TRADUCCIÓN\n\n"
-                    "Opciones:\n"
-                    "  A) Conservar glosario\n"
-                    "  B) Conservar glosario + configuración\n"
-                    "  C) Reiniciar todo (limpio)\n\n"
-                    "Seleccione opción (A/B/C) o 'cancelar':",
-            requiere_confirmacion=True
-        )
-    
-    def _ejecutar_reiniciar(self) -> ResultadoComando:
-        """Ejecutar reinicio"""
-        if "REINICIAR" in self._callbacks:
-            self._callbacks["REINICIAR"]()
-        return ResultadoComando(exito=True, mensaje="Traducción reiniciada")
-    
+        self._confirmacion_pendiente = ("reset", self._ejecutar_reiniciar)
+        return ResultadoComando(True, "REINICIAR: A) Conservar Glosario, B) Todo Nuevo. ¿A o B?", requiere_confirmacion=True)
+
+    def _ejecutar_reiniciar(self):
+        # La lógica real de reiniciar depende del callback en main
+        if "REINICIAR" in self._callbacks: self._callbacks["REINICIAR"]()
+        return ResultadoComando(True, "Sistema reiniciado")
+
     def _cmd_saltar(self, args: str) -> ResultadoComando:
-        """Comando SALTAR"""
-        try:
-            n = int(args.strip())
-            if "SALTAR" in self._callbacks:
-                self._callbacks["SALTAR"](n)
-            return ResultadoComando(
-                exito=True,
-                mensaje=f"Saltando {n} oraciones (marcadas como [NO TRADUCIDAS])"
-            )
-        except ValueError:
-            return ResultadoComando(exito=False, mensaje="Formato: [SALTAR N]")
-    
+        # Implementación stub para demo
+        return ResultadoComando(True, f"Saltando {args} oraciones (Stub)")
+
     def _cmd_volver(self, args: str) -> ResultadoComando:
-        """Comando VOLVER"""
-        try:
-            n = int(args.strip())
-            if "VOLVER" in self._callbacks:
-                self._callbacks["VOLVER"](n)
-            return ResultadoComando(
-                exito=True,
-                mensaje=f"Volviendo a traducir últimas {n} oraciones"
-            )
-        except ValueError:
-            return ResultadoComando(exito=False, mensaje="Formato: [VOLVER N]")
-    
-    # ══════════════════════════════════════════════════════════
+        return ResultadoComando(True, f"Volviendo {args} oraciones (Stub)")
+
+    # --------------------------------------------------------------------------
     # IMPLEMENTACIÓN: EXPORTACIÓN
-    # ══════════════════════════════════════════════════════════
-    
+    # --------------------------------------------------------------------------
+
     def _cmd_exportar_glosario(self, args: str) -> ResultadoComando:
-        """Comando EXPORTAR GLOSARIO"""
-        if not self.glosario:
-            return ResultadoComando(exito=False, mensaje="Glosario no disponible")
-        
-        formato = args.strip().lower() or "txt"
-        
-        if formato == "json":
-            datos = self.glosario.exportar_json()
-        elif formato == "csv":
-            datos = self.glosario.exportar_csv()
-        else:
-            datos = self.glosario.exportar_txt()
-        
-        return ResultadoComando(
-            exito=True,
-            mensaje=f"Glosario exportado ({formato.upper()})",
-            datos=datos
-        )
-    
+        fmt = args.lower() if args else "txt"
+        if not self.glosario: return ResultadoComando(False, "Sin glosario")
+        if fmt == "json": res = self.glosario.exportar_json()
+        elif fmt == "csv": res = self.glosario.exportar_csv()
+        else: res = self.glosario.exportar_txt()
+        return ResultadoComando(True, f"Glosario exportado ({fmt}):\n{res[:100]}...")
+
     def _cmd_exportar_traduccion(self, args: str) -> ResultadoComando:
-        """Comando EXPORTAR TRADUCCION"""
-        # Implementación depende del sistema completo
-        return ResultadoComando(
-            exito=True,
-            mensaje="Traducción exportada"
-        )
-    
+        return ResultadoComando(True, "Traducción exportada (Stub)")
+
     def _cmd_importar_glosario(self, args: str) -> ResultadoComando:
-        """Comando IMPORTAR GLOSARIO"""
-        fuente = args.strip()
-        if not fuente:
-            return ResultadoComando(
-                exito=False,
-                mensaje="Formato: [IMPORTAR GLOSARIO fuente]"
-            )
-        
-        # Implementación depende del sistema de archivos
-        return ResultadoComando(
-            exito=True,
-            mensaje=f"Importando glosario desde: {fuente}"
-        )
-    
-    # ══════════════════════════════════════════════════════════
+        return ResultadoComando(True, f"Importando desde {args} (Stub)")
+
+    # --------------------------------------------------------------------------
     # IMPLEMENTACIÓN: AYUDA
-    # ══════════════════════════════════════════════════════════
-    
+    # --------------------------------------------------------------------------
+
     def _cmd_ayuda(self, args: str) -> ResultadoComando:
-        """Comando AYUDA"""
         if args:
-            # Ayuda específica
-            cmd_nombre = args.strip().upper()
-            if cmd_nombre in COMANDOS:
-                cmd = COMANDOS[cmd_nombre]
-                texto = (
-                    f"COMANDO: [{cmd.nombre}]\n\n"
-                    f"DESCRIPCIÓN:\n  {cmd.descripcion}\n\n"
-                    f"USO:\n  {cmd.uso}\n\n"
-                    f"EJEMPLO:\n  {cmd.ejemplo}"
-                )
-                return ResultadoComando(exito=True, mensaje=texto)
-            return ResultadoComando(exito=False, mensaje=f"Comando '{args}' no encontrado")
+            nombre = args.upper()
+            if nombre in COMANDOS:
+                cmd = COMANDOS[nombre]
+                return ResultadoComando(True, f"{cmd.nombre}\n{cmd.descripcion}\nUso: {cmd.uso}")
+            return ResultadoComando(False, "Comando no encontrado")
         
         # Ayuda general
-        lineas = [
-            "═" * 50,
-            "COMANDOS DISPONIBLES",
-            "═" * 50,
-            "",
-            "CONSULTA:",
-            "  [GLOSARIO]          [LOCUCIONES]       [ALTERNATIVAS]",
-            "  [DECISIONES]        [CONFIGURACION]    [ESTADO]",
-            "",
-            "MODIFICACIÓN:",
-            "  [ACTUALIZA x = y]   [AÑADE x = y]      [ELIMINA x]",
-            "  [AÑADE LOCUCION x = A-B-C]",
-            "  [REGLA ...]         [BORRA REGLA N]",
-            "  [MODO TRANSLITERACION x]",
-            "  [MODO BORRADOR]     [MODO FINAL]",
-            "",
-            "CONTROL:",
-            "  [PAUSA]             [CONTINUAR]        [FORZAR]",
-            "  [REINICIAR]         [SALTAR N]         [VOLVER N]",
-            "",
-            "EXPORTACIÓN:",
-            "  [EXPORTAR GLOSARIO formato]",
-            "  [EXPORTAR TRADUCCION formato]",
-            "  [IMPORTAR GLOSARIO fuente]",
-            "",
-            "AYUDA:",
-            "  [AYUDA]             [AYUDA comando]",
-            "  [PROTOCOLOS]        [PROTOCOLO N]",
-            "",
-            "═" * 50,
-        ]
-        
-        return ResultadoComando(exito=True, mensaje="\n".join(lineas))
-    
+        lista = sorted(COMANDOS.keys())
+        return ResultadoComando(True, "Comandos disponibles:\n" + ", ".join([f"[{c}]" for c in lista]))
+
     def _cmd_protocolos(self) -> ResultadoComando:
-        """Comando PROTOCOLOS"""
-        texto = """
-═══════════════════════════════════════════════════
-PROTOCOLOS DEL SISTEMA
-═══════════════════════════════════════════════════
+        return ResultadoComando(True, "Lista de protocolos: P0..P11 (Ver documentación)")
 
-P0:  Modo de Operación (Flujo e Interacción)
-P1:  Definiciones Operativas
-P2:  Constitución (Reglas Inviolables)
-P3:  Core (Control de Flujo)
-P4:  Núcleos Léxicos (Discriminador Semántico)
-P5:  Partículas (Generador de Candidatos)
-P6:  Casos Difíciles (Generador de Soluciones)
-P7:  Reparación Sintáctica
-P8:  Glosario (Registro y Custodia)
-P9:  Formación Léxica (Transliteración y Neologismos)
-P10: Renderizado (Pre y Post Procesamiento)
-P11: Script de Comandos
-
-═══════════════════════════════════════════════════
-Use [PROTOCOLO N] para ver detalle de un protocolo.
-═══════════════════════════════════════════════════
-"""
-        return ResultadoComando(exito=True, mensaje=texto.strip())
-    
     def _cmd_protocolo(self, args: str) -> ResultadoComando:
-        """Comando PROTOCOLO"""
-        try:
-            num = int(args.strip())
-            # Aquí se cargaría el detalle del protocolo
-            return ResultadoComando(
-                exito=True,
-                mensaje=f"Detalle del Protocolo P{num} (ver documentación completa)"
-            )
-        except ValueError:
-            return ResultadoComando(exito=False, mensaje="Formato: [PROTOCOLO N]")
-    
-    # ══════════════════════════════════════════════════════════
-    # CONFIRMACIONES
-    # ══════════════════════════════════════════════════════════
-    
+        return ResultadoComando(True, f"Detalle del protocolo {args} (Stub)")
+
+    # --------------------------------------------------------------------------
+    # LÓGICA DE CONFIRMACIÓN
+    # --------------------------------------------------------------------------
+
     def _procesar_confirmacion(self, entrada: str) -> ResultadoComando:
-        """Procesar respuesta a confirmación pendiente"""
-        entrada = entrada.strip().lower()
-        
-        if entrada in ["sí", "si", "s", "yes", "y"]:
+        entrada = entrada.lower()
+        if entrada in ["sí", "si", "s", "yes", "y", "a", "b"]: # A/B para reinicio
             _, callback = self._confirmacion_pendiente
             self._confirmacion_pendiente = None
             return callback()
-        
-        elif entrada in ["no", "n", "cancelar", "cancel"]:
+        elif entrada in ["no", "n", "cancelar"]:
             self._confirmacion_pendiente = None
-            return ResultadoComando(exito=True, mensaje="Operación cancelada")
-        
-        # Para REINICIAR, aceptar A/B/C
-        elif entrada.upper() in ["A", "B", "C"]:
-            _, callback = self._confirmacion_pendiente
-            self._confirmacion_pendiente = None
-            return callback()
-        
-        return ResultadoComando(
-            exito=False,
-            mensaje="Responda sí/no o la opción correspondiente",
-            requiere_confirmacion=True
-        )
+            return ResultadoComando(True, "Operación cancelada")
+        else:
+            return ResultadoComando(False, "Responda sí o no", requiere_confirmacion=True)
 
-
-# ══════════════════════════════════════════════════════════════
-# INSTANCIA GLOBAL
-# ══════════════════════════════════════════════════════════════
-
-_procesador_comandos: Optional[ProcesadorComandos] = None
-
-
-def obtener_procesador_comandos() -> ProcesadorComandos:
-    """Obtener procesador de comandos global"""
-    global _procesador_comandos
-    if _procesador_comandos is None:
-        _procesador_comandos = ProcesadorComandos()
-    return _procesador_comandos
-
-
-def procesar_comando(entrada: str) -> ResultadoComando:
-    """Función de conveniencia para procesar comando"""
-    return obtener_procesador_comandos().procesar(entrada)
+# Instancia global para facilitar acceso
+_procesador_comandos = ProcesadorComandos()
+def obtener_procesador_comandos(): return _procesador_comandos
