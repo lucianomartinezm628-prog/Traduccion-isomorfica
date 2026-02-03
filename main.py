@@ -19,6 +19,7 @@ from casos_dificiles import ProcesadorCasosDificiles
 from reparacion import ReparadorSintactico
 from formacion import ControladorFormacionLexica
 from renderizado import ControladorRenderizado
+from utils import Logger
 from consultas import GestorConsultas, obtener_gestor_consultas
 from comandos import ProcesadorComandos, obtener_procesador_comandos
 
