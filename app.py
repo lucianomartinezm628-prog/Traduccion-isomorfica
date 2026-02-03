@@ -1,125 +1,93 @@
 import streamlit as st
-import pandas as pd
-# Asumimos que tu código principal del Word se llama 'main.py'
-# y tiene la clase SistemaTraduccion.
-# Si pusiste todo en un solo archivo, cambia 'main' por el nombre de ese archivo.
+import json
+from io import StringIO
+
+# Importamos la clase del backend (asegúrate de que el archivo del Word se llame main.py)
 try:
-    from main import SistemaTraduccion, ModoSalida
+    from main import SistemaTraduccion
 except ImportError:
-    st.error("⚠️ No se encontró el archivo 'main.py'. Asegúrate de haber guardado el código del Word en la misma carpeta.")
+    st.error("⚠️ No se encontró el archivo 'main.py'.")
     st.stop()
 
-# --- Configuración de la Página ---
-st.set_page_config(
-    page_title="Panel Isomórfico v2.0",
-    page_icon="🛡️",
-    layout="wide"
-)
+st.set_page_config(page_title="Traductor Isomórfico", layout="wide")
 
-# --- Inicialización del Estado (Memoria) ---
-# Esto evita que el glosario se borre cada vez que tocas un botón
+# --- Inicializar Sistema ---
 if 'sistema' not in st.session_state:
     st.session_state.sistema = SistemaTraduccion()
 
-# Acceso rápido al sistema
 sys = st.session_state.sistema
 
-# --- BARRA LATERAL (Control y Comandos) ---
+# --- BARRA LATERAL ---
 with st.sidebar:
-    st.image("https://img.icons8.com/color/96/shield.png", width=50)
-    st.title("Configuración")
+    st.title("⚙️ Configuración")
     
-    st.markdown("### 🛠️ Comandos Manuales")
-    st.info("Aquí puedes cargar el glosario manualmente.")
+    # 1. BOTÓN DE REINICIO (Úsalo ahora para borrar los errores "idad")
+    if st.button("🔴 REINICIAR SISTEMA (Borrar memoria)", type="primary"):
+        st.session_state.sistema = SistemaTraduccion()
+        st.rerun()
     
-    # Input para comandos (P11)
-    comando = st.text_input("Escribe un comando:", placeholder="[AÑADE token = trad]")
-    if st.button("Ejecutar Comando"):
-        if comando:
-            resultado = sys.procesar_comando(comando)
-            st.success(f"Sistema: {resultado}")
-        else:
-            st.warning("Escribe un comando primero.")
+    st.divider()
 
-    st.markdown("---")
+    # 2. CARGADOR DE GLOSARIO (¡NUEVO!)
+    st.subheader("📂 Cargar Glosario")
+    archivo_subido = st.file_uploader("Sube un archivo .txt o .json", type=['txt', 'json'])
     
-    # Visor de Estado del Proceso
-    st.markdown("### 📊 Estado del Sistema")
-    estado_txt = sys.obtener_estado()
-    st.text(estado_txt)
-
-    # Botones de control rápido
-    col1, col2 = st.columns(2)
-    with col1:
-        if st.button("Reiniciar"):
-            sys.procesar_comando("[REINICIAR]")
-            st.rerun()
-    with col2:
-        if st.button("Ver Glosario"):
-            st.session_state.mostrar_glosario = True
-
-# --- PANEL PRINCIPAL ---
-st.title("🛡️ Panel de Control Isomórfico v2.0")
-
-# Área de Texto Fuente
-st.subheader("Texto Fuente (Árabe/Latín)")
-texto_input = st.text_area(
-    "Ingresa el texto aquí:",
-    height=150,
-    placeholder="[2] Dicemus ergo quod dictiones..."
-)
-
-col_izq, col_der = st.columns([1, 4])
-with col_izq:
-    boton_traducir = st.button("Traducir", type="primary", use_container_width=True)
-
-# Lógica de Traducción
-if boton_traducir and texto_input:
-    with st.spinner('Procesando isomorfismo...'):
-        try:
-            # 1. Ejecutar traducción
-            traduccion_final = sys.traducir(texto_input)
-            
-            # 2. Mostrar Resultados en Pestañas
-            tab1, tab2, tab3 = st.tabs(["📝 Resultado Final", "🔍 Matriz Fuente (Mtx_S)", "🎯 Matriz Destino (Mtx_T)"])
-            
-            with tab1:
-                st.markdown("### Traducción Renderizada")
-                st.success(traduccion_final)
+    if archivo_subido is not None:
+        if st.button("Procesar Archivo"):
+            try:
+                # Leer archivo
+                stringio = StringIO(archivo_subido.getvalue().decode("utf-8"))
                 
-                # Opción de descargar
-                st.download_button(
-                    label="Descargar Traducción",
-                    data=traduccion_final,
-                    file_name="traduccion_isomorfica.txt",
-                    mime="text/plain"
-                )
+                # Caso 1: Archivo JSON (Exportado previamente)
+                if archivo_subido.name.endswith('.json'):
+                    datos = json.load(stringio)
+                    # Aquí habría que conectar con una función de importación en tu backend
+                    # Si no existe, simulamos carga manual:
+                    count = 0
+                    for k, v in datos.items():
+                        cmd = f"[AÑADE {k} = {v['traduccion']}]"
+                        sys.procesar_comando(cmd)
+                        count += 1
+                    st.success(f"✅ Se cargaron {count} términos desde JSON.")
 
-            with tab2:
-                st.markdown("#### Desglose de Tokens Fuente")
-                # Simulamos la visualización de la matriz fuente
-                # El backend tiene sys._oraciones_fuente, podemos usarlo
-                st.code(sys._oraciones_fuente)
+                # Caso 2: Archivo de Texto (Lista de comandos)
+                else:
+                    lineas = stringio.readlines()
+                    count = 0
+                    errores = 0
+                    barra = st.progress(0)
+                    for i, linea in enumerate(lineas):
+                        linea = linea.strip()
+                        if linea.startswith("[AÑADE") or linea.startswith("[REGLA"):
+                            sys.procesar_comando(linea)
+                            count += 1
+                        elif linea: # Si hay texto pero no es comando
+                            errores += 1
+                        barra.progress((i + 1) / len(lineas))
+                    
+                    st.success(f"✅ Procesados {count} comandos.")
+                    if errores > 0:
+                        st.warning(f"⚠️ {errores} líneas ignoradas (no eran comandos).")
+                        
+            except Exception as e:
+                st.error(f"Error al leer archivo: {e}")
 
-            with tab3:
-                st.markdown("#### Estructura Isomórfica de Salida")
-                # Usamos el modo borrador para ver la estructura interna
-                modo_actual = sys.config.modo_salida
-                sys.procesar_comando("[MODO BORRADOR]")
-                borrador = sys.obtener_traduccion() # Obtiene la versión debug
-                st.text(borrador)
-                # Restauramos modo
-                sys.config.modo_salida = modo_actual
+    st.divider()
+    
+    # Visor rápido
+    st.info(f"Tokens en memoria: {len(sys.glosario.terminos)}")
 
-        except Exception as e:
-            st.error(f"Error crítico en el núcleo: {e}")
+# --- PANTALLA PRINCIPAL ---
+st.title("🛡️ Traductor Isomórfico")
 
-# --- VISOR DE GLOSARIO (Expander) ---
-st.markdown("---")
-with st.expander("📚 Ver Glosario Activo", expanded=False):
-    glosario_txt = sys.obtener_glosario()
-    if glosario_txt:
-        st.text(glosario_txt)
-    else:
-        st.info("El glosario está vacío. Traduce algo o usa comandos para añadir términos.")
+texto = st.text_area("Texto Latín/Árabe", height=150)
 
+if st.button("TRADUCIR", type="primary"):
+    if texto:
+        res = sys.traducir(texto)
+        st.success(res)
+        
+        with st.expander("Ver Detalles Internos"):
+            st.text(sys.obtener_estado())
+            st.text("--- GLOSARIO ACTUAL ---")
+            st.text(sys.obtener_glosario())
